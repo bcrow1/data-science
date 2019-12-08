@@ -1,0 +1,253 @@
+from pandas import read_csv
+import pandas as pd
+# Read in the Orders "train" only of Instacart dataset
+# Data subsetting done/created by Evan
+orders_train = pd.read_csv("~/Desktop/train.csv")
+orders_train
+
+
+# Using Order Products Train dataset
+# Read in the Order_Products_Train dataset
+order_products_train = pd.read_csv("~/Desktop/order_products_train.csv")
+order_products_train
+
+
+# Merge "Orders train" with "Orders_Product_Train" csv
+# We want columns in the Right dataset to match with
+# the left. order_products_train is Left, orders_train is Right
+# When they merge, the "train" eval_set drops off, so the dataset is smaller
+# Removed "eval_set" column since it was creating errors (categorical not needed).
+new_data_train = pd.merge(order_products_train, orders_train, on='order_id', how="left")
+new_data_train = new_data_train.dropna()
+del new_data_train['eval_set']
+new_data_train
+
+
+from sklearn.model_selection import train_test_split
+# Creating a new variable so that we don't have to keep
+# re-running the above kernel. We only run whatever
+# amount is in .head() parenthesis
+# Use small amount for test. 502,357 is too large,
+# too long to run & crashes. OK run time from 1,000
+# to 3,000 rows. Smaller amount generates a better
+# accuracy score for Support Vector Classifier
+# Y variable is "user_id"
+limited_new_data_train = new_data_train.head(1000)
+
+
+# Preparing the data, one way
+X = limited_new_data_train.drop('user_id', axis=1)  
+y = limited_new_data_train['user_id']  
+colTags = list(X.columns.values)
+
+
+# Split into training and test sets. 70% train, 30% test model
+# Tried 100/0, get an error. Tried 95/5, runs slow & gets
+# 0.01 to 0.03 output. So not good.
+X_train, X_test, y_train, y_test =\
+    train_test_split(X, y, test_size=0.3, random_state=0)
+X
+
+
+# Perform multi-label classification using SVC (use one vs. others since SVC is a binary classification)
+from sklearn.datasets import make_multilabel_classification
+from sklearn.svm import SVC
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.metrics import accuracy_score
+import warnings
+warnings.filterwarnings('ignore')
+# Prepare the multilabel model/classifier "One vs. Rest"
+# Use radial basis function "rbf" kernel. It can map an
+# input space in infinite dimensional space.
+# Support Vector Classifier
+model = OneVsRestClassifier(SVC(kernel='rbf', degree=2, C=1.0))
+model.fit(X_train, y_train)
+acct_score = accuracy_score(y_test, model.predict(X_test))
+print('The accuracy score of multi-label classification with SVC is {}.'.format(round(acct_score, 2)))
+
+
+# PCA on X values (input features only) first, then use oneVsRestClassifier() with PCA
+from sklearn.preprocessing import StandardScaler
+# Standardize to unit variance so that the range of all the
+# features are normalized, allowing each feature to contribute
+# approx proportionately to the final distance.
+sc = StandardScaler()
+X_train_std = sc.fit_transform(X_train)
+X_test_std = sc.transform(X_test)
+
+
+import numpy as np
+# Using the numpy.cov function, we computed the covariance matrix
+# of the standardized training data set.
+# Using the linalg.eig function, we performed the eigendecomposition,
+# which yielded a vector (eigen_vals) consisting of 13 eigenvalues and
+# corresponding eigenvectors as columns in a 13 x 13 dimensional matrix.
+
+
+cov_mat = np.cov(X_train_std.T)
+eigen_vals, eigen_vect = np.linalg.eig(cov_mat)
+print('\nEigenvalues \n%s' % eigen_vals)
+
+
+tot = sum(eigen_vals)
+var_exp = [(i / tot) for i in sorted(eigen_vals, reverse=True)]
+cum_var_exp = np.cumsum(var_exp)
+
+
+# Feature transformation
+# Sort the eigenpairs by descending order of the eigenvalues,
+# construct a projection matrix from the selected eigenvectors,
+# and use the projection matrix to tranform the data onto the
+# lower-dimensional subspace.
+# Start by sorting the eigenpairs by decreasing order of the eigenvalues
+# Create a 13x2 dimensional projection matrix W from the top two eigenvectors.
+eigen_pairs = [(np.abs(eigen_vals[i]), eigen_vect[:, i])
+              for i in range(len(eigen_vals))]
+eigen_pairs.sort(key=lambda k: k[0], reverse=True)
+
+
+# Creating a projection matrix
+w = np.hstack((eigen_pairs[0][1][:, np.newaxis],
+              eigen_pairs[1][1][:, np.newaxis]))
+print('Matrix W:\n', w)
+
+
+import matplotlib.pyplot as plt
+# Using the projection matrix, we can now transform a sample x
+# (represented as a 1x13 dimensional row vector) onto the PCA subspace,
+# the Principal Components 1 and 2.
+# We can also we can transform the entire 124 x 13 dimensional training
+# data set onto the two principal components by calculating the dot product
+X_train_pca = X_train_std.dot(w)
+colors = ['r', 'b', 'g']
+markers = ['s', 'x', 'o']
+
+for l, c, m in zip(np.unique(y_train), colors, markers):
+    plt.scatter(X_train_pca[y_train == l, 0],
+               X_train_pca[y_train == l, 1],
+               c=c, label=l, marker=m)
+plt.xlabel('PC 1')
+plt.ylabel('PC 2')
+plt.legend(loc='lower left')
+plt.tight_layout()
+plt.show()
+
+
+from sklearn.decomposition import PCA
+# Apply PCA. Use training & testing from Standardize
+pca = PCA(n_components=2)
+X_train_pca = pca.fit_transform(X_train_std)
+X_test_pca = pca.transform(X_test_std)
+
+
+# It indicates the proportion of the dataset's variance that lies
+# along the axis of each principal component
+print(pca.explained_variance_ratio_)
+
+
+# Changed n_components to 3, seeing if there is a change
+# PC1 to PC3 add up to .5350
+pca = PCA(n_components=3)
+X_train_pca = pca.fit_transform(X_train_std)
+X_test_pca = pca.transform(X_test_std)
+print(pca.explained_variance_ratio_)
+
+
+# Changed n_components to 7, to add up the ratios
+# PC1 to PC7 add up to .9518
+# 21.5% of the dataset's variance lies along the first axis,
+# 18.7% of the dataset's variance lies along the second axis
+# The further down we go with the PC, the less information is
+# carried on the axes
+pca = PCA(n_components=7)
+X_train_pca = pca.fit_transform(X_train_std)
+X_test_pca = pca.transform(X_test_std)
+print(pca.explained_variance_ratio_)
+
+
+# Book: Hands-on Machine Learning with Scikit-Learn, Keras & TensorFlow
+# by Aurelien Geron 2nd Edition
+# pg 225
+# You can set n_components to be a float between 0.0 and 1.0,
+# indicating the ratio of variance we wish to preserve
+pca = PCA(n_components=0.95)
+X_reduced = pca.fit_transform(X_train)
+print(pca.explained_variance_ratio_)
+
+
+from sklearn.multiclass import OneVsRestClassifier
+from sklearn.metrics import accuracy_score
+import warnings
+warnings.filterwarnings('ignore')
+# Prepare the multilabel classifier "One vs. Rest" with PCA
+model_pca = OneVsRestClassifier(SVC(kernel='rbf', degree=2, C=1.0))
+model_pca.fit(X_train_pca, y_train)
+acct_score2 = accuracy_score(y_test, model_pca.predict(X_test_pca))
+print('The accuracy score of multi-label classification with PCA {}.'.format(round(acct_score2, 2)))
+
+
+# Classifiers using kfold cross validation: Standard Decision Tree, Random Forest & Adaboost
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import AdaBoostClassifier
+from sklearn.model_selection import KFold
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import accuracy_score
+import warnings
+warnings.simplefilter("ignore")
+
+# Prepare the models:
+# Standard Decision Tree Classifier,
+# Random Forest with a depth of 2
+# Adaboost Classifier on Standared Decision Tree Classifier
+# First Adaptive Boosting aka Adaboost
+# Compare them using kfold cross validation with k=10 aka "n_splits=10"
+
+models = []
+models.append(('CART', DecisionTreeClassifier()))
+models.append(('Random Forest', RandomForestClassifier(max_depth=2, random_state=0)))
+models.append(('Adaboost', AdaBoostClassifier(DecisionTreeClassifier(max_depth=1),
+                                              n_estimators=200,
+                                              algorithm="SAMME.R",
+                                              learning_rate=0.5,
+                                              random_state=42)))
+
+# evaluate each model in turn
+results = []
+names = []
+scoring = 'accuracy'
+
+for name, model in models:
+    kfold = KFold(n_splits=10, random_state=7)
+    cv_results = cross_val_score(model, X, y, cv=kfold, scoring=scoring)
+    results.append(cv_results)
+    names.append(name)
+    msg = "%s: %f (%f)" % (name, cv_results.mean(), cv_results.std())
+    print(msg)
+    
+    
+# Comparing algorithms by box plots
+from matplotlib import pyplot
+fig = pyplot.figure()
+fig.suptitle('Algorithm Comparison')
+ax = fig.add_subplot(111)
+pyplot.boxplot(results)
+ax.set_xticklabels(names)
+pyplot.show()
+
+
+# Predictions with Adaboost Classifier (F1-score)
+from sklearn.metrics import classification_report, confusion_matrix
+# Implement the Adaboost Classifier on Standared Decision Tree Classifier
+# Do a fit method to train the system
+Adaboost = AdaBoostClassifier(DecisionTreeClassifier(max_depth=1),
+                                              n_estimators=200,
+                                              algorithm="SAMME.R",
+                                              learning_rate=0.5,
+                                              random_state=42)  
+Adaboost.fit(X_train, y_train)
+# Make predictions using the test set
+y_pred = Adaboost.predict(X_test)
+# Run the classification report
+print(confusion_matrix(y_test, y_pred))
+print(classification_report(y_test, y_pred))
